@@ -1,0 +1,590 @@
+---
+title: 'Classification: Predict which Brand of Products Customers Prefer'
+output: 
+  html_notebook: 
+    toc: yes
+editor_options: 
+  chunk_output_type: inline
+---
+  
+The sales team of Blackwell Electronics, a fictional company, engaged a market research firm to conduct a survey of existing customers to find out which of two brands customers prefer. Aproximately 10,000 customers fully completed the survey. About 5000 customers did not fully complete the survey, leaving the brand preference question blank or entering incorrect values.  
+
+The purpose of this project is to build a predictive model, based on the complete survey results, to predict the brand preference for the customers who did not fully complete the survey.
+
+The two brands of computers are Sony and Acer, represented by 0 and 1, respectively. Because *brand* is a binary categorical variable, we will use decision tree classification methods to solve this problem, specifically the C5.0 algorithm and the Random Forest algorithm. 
+
+
+**Steps**
+
+- Preprocess the data.
+  - install and load libraries
+  - read data
+  - Examine Variabels
+    - check for missing values
+    - check for categorical data
+    - check for outliers
+  - normalize data
+  - split data
+- Train Models
+  - Random Forest
+  - C5.0
+- Test Model
+  - Apply Models 
+  - Compare Models 
+    - Explore Metrics
+- Apply Model
+- Present results
+  - Test Set Distributions
+  - Complete Brand Results
+
+# Preprocess the Data
+
+## Install Packages and Load Libraries
+```{r}
+install.packages("ggplot2")
+install.packages("caret")
+install.packages("C50")
+library(caret)
+library(C50)
+library(dplyr)
+library(ggplot2)
+library(readxl)
+```
+
+## Read Data
+
+Note that c_survey.csv refers to the complete survey. We wil use this for training. ic_survey.csv refers to the incomplete surveys. This is data that we need to predict the brand preference for. c_survey.csv . key.xlsx is the key, which explains what the features represent. We will load all three files and save it to the variables c_survey, ic_survey, and key, respectively. 
+```{r}
+c_survey <- read.csv("c_survey.csv", header = TRUE)
+ic_survey <- read.csv("ic_survey.csv", header = TRUE)
+key <- read_excel("key.xlsx")
+```
+
+## Examine Variables
+
+In this section, we will develop an understanding of our datasets. We will first look for missing values.
+Next, we will look at the key dataset to understand what our variables mean and what the different values in each column represent. We will explore the variable types through a statistical lens to see if our data is numeric, ordinal, categorical or discrete. We will also take into account whether our data is numeric, character, or logical, and adjust as necessary. In particular, categorical variables recorded as integers or numbers will need to be converted into factors for analysis in R. In addition, we will explore the frequency distributions, look for imbalances, and outliers. 
+
+While this needs to be done for both the complete survey and the incomplete survey, we will not explore distributions of the incomplete survey just yet. I do not want to peek at this dataset too much so as to not 'cheat' or somehow mess up my analysis. Instead, we will only adjust variable types in the incomplete survey as needed in order to be able to apply our predictive model. For example, we need to make sure that the incomplete survey has the same column names, in the same order, that there are no missing values, and the variable types are all inputted in the same way.
+
+### Quick check for missing values.
+```{r}
+sum(is.na(ic_survey))
+sum(is.na(c_survey))
+```
+
+### View variables and their types. 
+
+Develop an understanding of the data. Review both data sets and make sure that they have the same column names and variable types. 
+```{r}
+key
+str(ic_survey)
+str(c_survey)
+```
+We can see that both complete survey and incomplete survey have the same variable names and types and in the same order. Any variable adjustments that we make to the complete survey, we will also apply to the incomplete survey.
+
+#### Salary
+
+Salary is inputted as a number and is a continuous variable. 
+
+##### Distribution
+
+*For continuous variables, we will plot several histograms at different break levels to develop an    understanding of the distribution. We will start by determining the unique number of values for the variable to get an idea about which break levels to use.*
+
+```{r}
+unique_salaries <- length(unique(c_survey$salary)) #9656 unique salaries from 9898 instances
+hist(c_survey$salary, main = "Salary Distribution")
+hist(c_survey$salary, main = "Salary Distribution, 50 breaks", breaks = 50)
+hist(c_survey$salary, main = "Salary Distribution, 100 breaks", breaks = 100)
+
+```
+ 
+These histograms show us that there may be imbalances at the begging and end of the spectrum. Let's look at the smallest 200 values and largest 200 values (approximately the smallest 2% and largest 2% of the data). 
+```{r}
+salary_sorted <- sort(c_survey$salary)
+head(salary_sorted, n=200)
+tail(salary_sorted, n=200)
+```
+ 
+There seems to be a lot of salaries $20,000 and $150,000. At this time, I have decided not to go further with imbalance as an issue since the large majority of the distribution looks balanced. It is interesting that there were no customers with salaries below or above these amounts. This particular issue could indicate a problem with the survey. Perhaps, respondents were not able to enter values below $20,000 or above $150,000.
+
+##### Outliers
+ 
+Are there any outliers per the 1.5XIQR rule?
+
+```{r}
+q1 <- quantile(c_survey$salary,.25) # $52,082.11
+q3 <- quantile(c_survey$salary,.75) # $117,162
+iqr <- IQR(c_survey$salary) # $65,079.94
+
+lower_bound_outlier <- q1[[1]] - 1.5*iqr # -$45,537.8
+upper_bound_outlier <- q3[[1]] + 1.5*iqr # $214,781.9
+
+min(c_survey$salary) # $20,000
+max(c_survey$salary) # $150,000
+
+```
+
+There are no negative salries or salaries above $150,000 in the data set. Per the 1.5XIQR rule, there are no outliers in this data set. 
+ 
+##### Other Issues
+ 
+Something else to consider is that these values are large compared to other numeric variables like age. We may need to normalize this data since it could bias the decision tree splits, since salary would have a higher Mean Squared Error than a variable like age. 
+
+### Age
+
+Age is an integer and a discrete variable as it is measured in years. 
+
+##### Distribution
+
+
+```{r}
+unique_age <- length(unique(c_survey$age)) #61 unique values out of 9898 instances
+hist(c_survey$age, main = "Age Distribution")
+hist(c_survey$age, main = "Age Distribution, 30 breaks", breaks = 30)
+hist(c_survey$age, main = "Age Distribution, 61 breaks", breaks =61)
+```
+
+It looks like there are a lot more 20-year olds than any other age group. This could be considered a class imbalance. For this analysis, I will not look further into class imbalances since a large majority of the distrubution is balanced. As mentioned previously, this could indicate an issue witht the survey where respondents were not able to enter ages below 20 or above 80. 
+
+##### Outliers
+
+Are there any outliers per the 1.5XIQR rule?
+
+```{r}
+q1 <- quantile(c_survey$age,.25) #35
+q3 <- quantile(c_survey$age,.75) #65
+iqr <- IQR(c_survey$age) #30
+
+lower_bound_outlier <- q1[[1]] - 1.5*iqr #-10
+upper_bound_outlier <- q3[[1]] + 1.5*iqr #110
+
+min(c_survey$age) # 20
+max(c_survey$age) # 80
+
+```
+
+Since it does not make sense for age to be a negative number and there are no values above 80 for age, there are no outliers. 
+
+### Education Level
+
+Education Level, referred to as elevel, is inputed as an integer but will need to be converted into a factor since it is actually a categorical variable. Per the key, there are 4 levels:
+
+- 0 Less than High School Degree
+- 1 High School Degree
+- 2 Some College
+- 3 4-Year College Degree
+- 4 Master's, Doctoral or Professional Degree
+
+##### Distribution
+
+The histogram of elevel shows that values do indeed range from 1 to 4, and that there is no significant class imbalance.  
+
+
+```{r}
+hist(c_survey$elevel, main = "Education Level Distribution")
+```
+
+##### Convert to Factor
+```{r}
+# convert elevel in complete survey to a factor
+c_survey[, "elevel"] <- factor(c_survey[, "elevel"])
+# convert elevel in incomplete survey to a factor
+ic_survey[, "elevel"] <- factor(ic_survey[, "elevel"])
+#verify 
+str(c_survey)
+str(ic_survey)
+```
+
+### Car
+
+Car is inputed as an integer but refers to car makes, a categorical variable, consisting of BMW, Buick, Cadillac, Chevrolet, Chrysler, Dodge, Ford, Honda, Hyundai, Jeep, Kia, Lincoln, Mazda, Mercedes Benz, Mitsubishi, Nissan, Ram, Subaru, Toyota, and 'None of the above', each represented with a number from 1 to 20, respectively. We will need to convert this variable into a factor. 
+
+#### Distribution
+
+```{r}
+hist(c_survey$car, breaks=20, main = "Car Make Distribution")
+
+# histogram doesn't look very good, so we will plot this as a bar plot, with car as a factor
+plot(as.factor(c_survey$car), main= "Car Make Distribution")
+
+```
+The bar plot shows that there is no significant class imbalance.  
+
+
+##### Convert to Factor
+```{r}
+#convert car to factor in complete survey
+c_survey[, "car"] <- factor(c_survey[, "car"])
+#convert car to factor in incomplete survey
+ic_survey[, "car"] <- factor(ic_survey[, "car"])
+
+#verify 
+str(c_survey)
+str(ic_survey)
+```
+
+### Zipcode
+
+Zipcode is inputed as an integer and is based on region types and is a categorical variable. The regions are  New England, Mid-Atlantic, East North Central, West North Central, South Atlantic, East South Central, West South Central, Mountain, and Pacific, each represented with a numbver from 0-8, respectively. We will need to convert this variable into a factor.
+
+#### Distribution
+
+```{r}
+hist(c_survey$zipcode, breaks=seq(0,8,1), main = "Zipcode Distribution")
+# histogram doesn't look very good, so we will plot this as a bar plot, with zipcode as a factor
+plot(as.factor(c_survey$zipcode), main = "Zipcode Distribution")
+
+```
+The bar plot shows that there is no significant class imbalance.
+
+##### Convert to Factor 
+```{r}
+#convert car to factor in complete survey
+c_survey[, "zipcode"] <- factor(c_survey[, "zipcode"])
+#convert car to factor in incomplete survey
+ic_survey[, "zipcode"] <- factor(ic_survey[, "zipcode"])
+
+#verify 
+str(c_survey)
+str(ic_survey)
+
+```
+
+### Credit
+
+Credit refers to the dollar value available to the customer. It is a numerical value and just like salary, we may need to normalize the data as credit has larger values compared to other numeric variables like age. 
+
+#### Distribution
+
+```{r}
+unique_age <- length(unique(c_survey$credit)) #9652 unique values out of 9898 instances
+hist(c_survey$credit, main = "Credit Distribution")
+hist(c_survey$credit, main = "Credit Distribution", breaks =50)
+hist(c_survey$credit, main = "Credit Distribution", breaks =100)
+hist(c_survey$credit, main = "Credit Distribution", breaks =300)
+max(c_survey$credit) # $500,000
+min(c_survey$credit) #0
+
+```
+
+Per the histogram, there is no significant frequency imbalance, except perhaps in $0 and $500,000 credit amounts. For the purpose of this analysis, I will not dive further into this issue since most of the distribution appears balanced. As mentioned earlier, this may indicate a limitation in the marketing research where participants were not able to record amounts larger than $500,000. 
+
+#### Outliers
+
+Are there any outliers per the 1.5XIQR rule?
+
+```{r}
+q1 <- quantile(c_survey$credit,.25) #$120,806.8 
+q3 <- quantile(c_survey$credit,.75) #$374,639.7
+iqr <- IQR(c_survey$credit) # $253,832.9
+
+lower_bound_outlier <- q1[[1]] - 1.5*iqr # $-259,942.5
+upper_bound_outlier <- q3[[1]] + 1.5*iqr # $ 755,389
+min(c_survey$credit) # 0
+max(c_survey$credit) # $500,000
+
+```
+
+Since it does not make sense for credit to be a negative number, there are no lower bound outliers. There are also no values even close to reaching $755,389. Therefore, there are no outliers for this variable. 
+
+### Brand
+
+Finally, our target variable. Brand consists of Sony and Acer, represented by 0 and 1, respectively. It is inputted as a integer but it is a categorical variable, so it will need to be converted into a factor.
+
+#### Distribution
+
+```{r}
+hist(c_survey$brand, main = "Brand Distribution")
+# histogram doesn't look very good, so we will plot this as a bar plot, with zipcode as a factor
+plot(as.factor(c_survey$brand), main = "Brand Distribution")
+
+```
+There seems to be a 4000 to 6000 class imbalance. I don't believe it is too significant for the purposes of this analysis.
+
+##### Convert to Factor 
+```{r}
+#convert car to factor in complete survey
+c_survey[, "brand"] <- factor(c_survey[, "brand"])
+#convert car to factor in incomplete survey
+ic_survey[, "brand"] <- factor(ic_survey[, "brand"])
+
+#verify 
+str(c_survey)
+str(ic_survey)
+
+```
+
+## Normalize or Standardize Data
+We will come back to this in future. 
+
+## Split Data
+
+We have two data sets, the complete survey and the incomplete survey. We will split the complete survey by 75% for training and by 25% for testing. We wil then apply our model created from the training set on the incomplete survey data set. 
+
+We use the createDataPartition function from caret, which does a stratified random split of the data. 
+
+```{r}
+# create reproducable results from random sampling
+set.seed(123)
+# create 75% sample of row indices
+in_training <- createDataPartition(c_survey$brand, p = .75, list = FALSE)
+# create 75% sample of data and save it to train_data
+train_data <- c_survey[in_training, ]
+# create 25% sample of data and save it to test_data
+test_data <- c_survey[-in_training, ]
+# verify split percentages
+nrow(train_data) / nrow(c_survey)
+nrow(test_data) / nrow(c_survey)
+```
+
+# Train Models
+
+For this step, I have chosen to look at 2 different models using the caret package, which allows us to easily train several models. Because this is a classification problem (does a customer prefer acer or sony computers?), we will use decision trees, specifically Random Forest and C5.0. 
+
+We use caret because we can train different types of models really easily. We use the train() function to train our models. The train() function allows for really easy customization. The argument method can be used to select which algorithm to apply, such as "rf" for random forest or "C5.0" for C5.0 . the trControl argument, in combination with the trainControl() function allows us to speficy the type of sampling we will use. We will use repeated k-fold cross validation as our sampling technique. This technique splits our test data into a specified number of folds and provides an average error rate from all the folds. This also helps prevent overfitting. We will also train our model without cross-validation to explore the outcomes. The trainControl() function also allows us to set a set number of times to repeat the model. 
+
+* Note: Research cv methods and improve explanation. Do more research on repeat. 
+
+The train() function has two arguments that we are in particularly interested in. These are tuneGrid and tuneLength which are used to specify the number of variables randomly sampled at each split, also called mtyr. Using tuneLength tells R to automatically choose the mtry. It sets it to the  square root of the number of predictor variables for classification and the number of predictor variables divided by 3 for regression, all to the nearest integer. You can use tuneGrid to specify the number of mtyr by creating a vector with your mtyr values. The smaller the mtyr, the larger the datset, the more variety in trees. This can dilute the predictive function but can also give more confidence to the function. The goal here is to optimize mtry for the best results
+
+
+## Random Forest Model
+
+The Random Forest algorithm builds an ensemble of decision trees from smaller random subsets of the data (with repition), and averages the results of all the subtrees. It can handle classification and regression which is useful for this dataset since we have a combination of categorical and numeric variables. We do not want to set the mtry to be the same as the number of independent (or predictor) variables, particulary, for random forest. This will result in all the trees being created excatly the same, which defeats the purporse of this ensemble algorithm. 
+
+
+### Random Forest with 2-fold Cross Validation, Custom Parameters
+
+```{r message=TRUE}
+fitControl <- trainControl(method = "repeatedcv", number = 2,repeats = 1)
+grid <- expand.grid(mtry = c(2, 4, 5))
+# predict brand with data from all variables using random forest with custom sampling and custom parameters
+model_random_forest_cv_custom <- train(brand ~ .,data = train_data,method = "rf",trControl = fitControl ,tuneGrid = grid)
+model_random_forest_cv_custom
+```
+### Random Forest with 10-fold Cross Validation, Custom Parameters
+
+```{r message=TRUE}
+fitControl <- trainControl(method = "repeatedcv", number = 10,repeats = 1)
+grid <- expand.grid(mtry = c(3,4,5,6))
+# predict brand with data from all variables using random forest with custom sampling and custom parameters
+model_random_forest_cv10_custom <- train(brand ~ .,data = train_data,method = "rf",trControl = fitControl ,tuneGrid = grid)
+model_random_forest_cv10_custom
+```
+
+Random Forest 
+
+7424 samples
+   6 predictor
+   2 classes: '0', '1' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold, repeated 1 times) 
+Summary of sample sizes: 6681, 6682, 6681, 6683, 6682, 6681, ... 
+Resampling results across tuning parameters:
+
+  mtry  Accuracy   Kappa    
+  3     0.7226534  0.3258041
+  4     0.8585636  0.6926807
+  5     0.8927822  0.7719768
+  6     0.9078698  0.8049336
+
+Accuracy was used to select the optimal model using the largest value.
+The final value used for the model was mtry = 6.
+
+### Random Forest with 10-fold Cross Validation, Automatic Parameters
+```{r}
+fitControl <- trainControl(method = "repeatedcv", number = 10,repeats = 1)
+model_random_forest_cv10_auto_tL1 <- train(brand ~ .,data = train_data,method = "rf",trControl = fitControl,tuneLength = )
+model_random_forest_cv10_auto_tL1
+```
+Random Forest 
+
+7424 samples
+   6 predictor
+   2 classes: '0', '1' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold, repeated 1 times) 
+Summary of sample sizes: 6681, 6682, 6682, 6681, 6682, 6682, ... 
+Resampling results:
+
+  Accuracy   Kappa    
+  0.9195844  0.8293346
+
+Tuning parameter 'mtry' was held constant at a value of 11
+
+
+### Random Forest with 10-fold Cross Validation, Automatic Parameters
+```{r}
+fitControl <- trainControl(method = "repeatedcv", number = 10,repeats = 1)
+model_random_forest_cv10_auto_tL4 <- train(brand ~ .,data = train_data,method = "rf",trControl = fitControl,tuneLength = 4)
+model_random_forest_cv10_auto_tL4
+```
+
+   2 classes: '0', '1' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold, repeated 1 times) 
+Summary of sample sizes: 6681, 6682, 6682, 6681, 6682, 6682, ... 
+Resampling results:
+
+  Accuracy   Kappa    
+  0.9195844  0.8293346
+
+Tuning parameter 'mtry' was held constant at a value of 11
+Show in New WindowClear OutputExpand/Collapse Output
+Random Forest 
+
+7424 samples
+   6 predictor
+   2 classes: '0', '1' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold, repeated 1 times) 
+Summary of sample sizes: 6683, 6681, 6681, 6681, 6682, 6681, ... 
+Resampling results across tuning parameters:
+
+  mtry  Accuracy   Kappa    
+   2    0.6217673  0.0000000
+  12    0.9207991  0.8318960
+  23    0.9199923  0.8298795
+  34    0.9146035  0.8183777
+
+Accuracy was used to select the optimal model using the largest value.
+The final value used for the model was mtry = 12.
+
+
+<p style="color:red"> I don't understand how an mtry of 12 can be used when there are only 6 variables. This is something very confusing to me. I will need to do more research on this. Perhaps, I am understanding mtry the wrong wy. Integerstingly, 12 has resulted in the highest accuracy. </p>
+
+#### Random Forest Variable Importance
+
+The purpose of variable importance to to see which variables have the most impact on our predictions. This is part of feature selection. The general idea is that simpler models are better. Models with too many predictor variable can result in overfitting to the test set and 'muddying' results in predictions. We use variable importance to see which variables were used primarily in the model and to remove the rest. There are many ways to measure variable importance. For linear regression models, we use correlation and p-values. For the random forest model, the gini index is used to calculate variable importance. Regardless, we still need to look at the predictor variables to see if there is a logical relationship. For the scope of this analysis, we will not actually remove any variables. 
+
+<p style = "color:red">
+Articles to read: 
+https://blog.datadive.net/selecting-good-features-part-iii-random-forests/ 
+https://link.springer.com/article/10.1186/1471-2105-8-25
+https://dataaspirant.com/2018/01/15/feature-selection-techniques-r/
+https://www.r-bloggers.com/be-aware-of-bias-in-rf-variable-importance-metrics/
+</p>
+
+```{r}
+varImp_RF <- varImp(model_random_forest_cv10_auto_tL4)
+varImp_RF
+```
+
+## C5.0  Model
+
+The C5.0 algorithm uses information gain to create one decision tree with the highest accuracy rate. It uses entropy with classification and the gini index for regression. <p style="color:red"> I don't understand this at all. It doesn't make sense to me. I need to do more research to find out exactly what this mean. What happens when it's face with age and car. How does decide to split between them? Entropy is based on class probabilities. So this is a decimal or a small number. In other regression trees, MSE is used. This is the mean of the sum of the residuals squared. This can be a very big number for a variable like salary. I will come back with a description in this section once I develop an understanding on this matter. </p>
+
+C5.0 has three parameters that we can tune through the caret package. These are winnow trails, and model. We will not use custom parameters on C5.0 for this analysis. 
+
+<p style="color:red"> winnow is used to pre-select a subst of attributes. I would like to go further into this parameter in the future. How exactly does this differ from output ~ . , if we didn't want to use some attributes, we just wouldn't include it in the model, right? </p>
+
+
+### C5.0 with 10-fold Cross Validation, Automatic Parameters
+```{r}
+fitControl <- trainControl(method = "repeatedcv", number = 10, repeats = 1)
+model_c5 <- train( brand ~ ., data = train_data, method = "C5.0", trControl = fitControl, tuneLength = 1)
+model_c5
+
+```
+C5.0 
+
+7424 samples
+   6 predictor
+   2 classes: '0', '1' 
+
+No pre-processing
+Resampling: Cross-Validated (10 fold, repeated 1 times) 
+Summary of sample sizes: 6682, 6682, 6681, 6682, 6682, 6682, ... 
+Resampling results across tuning parameters:
+
+  model  winnow  Accuracy   Kappa    
+  rules  FALSE   0.8527814  0.7009648
+  rules   TRUE   0.8639672  0.7221692
+  tree   FALSE   0.8502237  0.6849298
+  tree    TRUE   0.8600617  0.7033688
+
+Tuning parameter 'trials' was held constant at a value of 1
+Accuracy was used to select the optimal model using the largest value.
+The final values used for the model were trials = 1, model = rules and winnow = TRUE.
+
+#### C5.0 Variable Importance
+
+```{r}
+varImp_C5 <- varImp(model_c5)
+varImp_C5
+```
+
+# Compare Models
+
+We will combine the results of our models into a table to easily see which one is the best. The performance metrics we are taking into consideration are accuracy and kappa. Accuracy is pretty easy to understand. The higher the better. Kappa compares how accurace the model is with what could happen just by chance. In general, the higher, the better. 
+
+```{r}
+results <- resamples(list(RF_cv2_grid = model_random_forest_cv_custom, 
+                          RF_cv10_grid = model_random_forest_cv10_custom, 
+                          RF_cv10_auto1 = model_random_forest_cv10_auto_tL1, 
+                          RF_cv10_auto4 = model_random_forest_cv10_auto_tL4, 
+                          C5 = model_c5))
+summary(results)
+dotplot(results)
+```
+ It looks like the random forest algorithm with 10-fold cross-validation, automatic tuning with tuneLength set to 4, and mtry = 12, produced the model with both the highest accuracy (0.9207991) and kapppa (0.8318960. We will use this model for our predictions. 
+ 
+# Make Predictions
+
+We will now use our model to make predictions to see which customers in the incomplete survey set prefer Sony and Acer computers. 
+
+````{r}
+prediction <- predict( model_random_forest_cv10_auto_tL4, newdata = ic_survey, type = "raw")
+summary(prediction)
+```
+
+
+# Present Results
+
+## Test Set Distributions
+
+How many customers preferred which computers?
+````{r}
+summary(prediction)
+```
+
+It looks like more customers prefer Acer (1) over Sony(0).
+
+```{r}
+ic_survey_with_predictions <- cbind(ic_survey, prediction)
+ic_survey_with_predictions
+```
+
+
+Let's take a look at the distributions in the test set for insight.
+
+```{r}
+plot((ic_survey_with_predictions$elevel), main= "Education Level Distribution")
+plot((ic_survey_with_predictions$car), main= "Car Make Distribution")
+plot((ic_survey_with_predictions$zipcode), main= "Zipcode Distribution")
+plot((ic_survey_with_predictions$brand), main= "Brand Distribution")
+plot((ic_survey_with_predictions$prediction), main= "Brand - Predicted Distribution")
+
+hist(ic_survey_with_predictions$salary, main = "Salary Distribution", breaks =50)
+hist(ic_survey_with_predictions$age, main = "Age Distribution", breaks =50)
+hist(ic_survey_with_predictions$credit, main = "Credit Distribution", breaks =50)
+```
+
+These distributions all look similar to the complete survey test set except for brand, which is almost at a 0 to 1000 ratio. This confirms that the brand predictions were recorded incorrectly. The prediction distribution  for brand looks closer to the brand distribution in the complete survey. 
+
+## Features
+
+Our model used the following features:
+
+```{r}
+varImp_RF
+```
+
+On a theoretical perspective, it makes sense that salary has been used the most. We could remove education, zipcode, and car from the model in the future.  
+
+<p style="color:red"> I'm not sure of any other ways to support the features used with quantitative evidence except for the varImp printout above.  </p>
