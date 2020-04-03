@@ -1,0 +1,943 @@
+---
+title: "Multiple Regression"
+output: 
+  html_notebook: 
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+ -Purpose
+ - Preprocess Data 
+ -- Install and Load Libraries
+ -- Import Dataset
+ -- Missing Data
+ -- Data Exploration - What are our variables and what do they mean?
+ --- Useful functions for Data Exploration
+ ---Product Number
+ --- Price
+ --- Customer Reviews
+ ---- 5-Star Reviews
+ ---- 4-Star Reviews
+ ---- 3-Star Reviews
+ ---- 2-Star Reviews
+ ---- 1-Star Reviews
+ --- Service Reviews
+ ---- Positive Service Reviews
+ ---- Negative Service Reviews
+ --- Recommend Product
+ --- Best Sellers Rank
+ --- Shipping Weight
+ --- Product Depth
+ --- Product Height
+ --- Profit Margin
+ --- Product Type
+ -- Normalize Data
+ -- Remove Outliers
+ -- Split Data
+ --- Normalized Data Set
+ --- Data As Is
+ --- Data with Outliers Removed
+ - Train Models
+ -- Linear Regression Models
+ --- Plot of Residuals
+ --- R-Squared
+ --- 
+
+Blackwell Electronics is a fictitious company that sells computers. The sales team has been tracking the sales performance of products and would like us to predict customer brand preference taking into account the type of product. We will look at historical sales data and predict sales volume. We want to understand how types of products might impact sales. There are four different product types that the sales team wants us to primarily focus on: PC, Laptops, Netbooks and Smartphones.
+
+There are 18 variables in this dataset. We will explore all of them but we are primarily focused on sales volume, product type, service reviews, and customer reviews. 
+
+
+# Preprocess Data
+## Install and Load Libraries
+
+```{r echo=FALSE}
+install.packages("caret")
+install.packages("corrplot")
+install.packages('corrr')
+
+library(caret)
+library(readxl)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(corrr)
+
+```
+
+## Read Data
+
+Read existing attributes data file. 
+```{r}
+existing <- read.csv("existingproductattributes2017.csv", header = TRUE)
+```
+Read new attributes data file. 
+```{r}
+new <- read.csv("newproductattributes2017.csv", header = TRUE)
+```
+### Useful functions for analysis
+```{r}
+
+# IQR test for outliers
+outlier_test <- function(col, data) {
+        q1 <- quantile(col,.25) 
+        q3 <- quantile(col,.75)
+        iqr <- IQR(col)
+        lower_bound_outlier <- q1[[1]] - 1.5*iqr
+        upper_bound_outlier <- q3[[1]] + 1.5*iqr
+        df_outliers <- data[col < lower_bound_outlier | col > upper_bound_outlier,]
+        return (df_outliers)}
+# Add outliers to outlier list
+my_outliers <- c()
+append_outliers <- function(my_list , df) {
+        df_outliers_ProductNum <- df$ProductNum
+        my_outliers <- append(my_list, df_outliers_ProductNum)
+        return (my_outliers)
+}
+
+``` 
+ 
+
+## Data Exploration
+
+We will explore all of our variables. We look for missing values, any necessary feature transformations, outliers, and patterns.
+
+In particular, we will create dummy variables for multiple regression.
+
+### Structure of Data
+Review data types.
+```{r}
+str(existing)
+str(new)
+```
+
+For multiple regression with categorical variables, we will convert factors to binary values using the dummy variable method. A quick look at the structure of our dataset shows that Product Type is the only factor. Product Number could be considered a categorical variable but we will leave it as it is and just use it as a reference for specific products. 
+
+
+### Missing Values
+```{r}
+summary(existing)
+sum(is.na(new))
+
+```
+It looks like there are missing values in the existing attributes dataset, but not in the new attributes dataset. We can handle missing data by either deleting the row, delete the class, delete the BestSellersRank variable, impute it with the mean, median or mode, or predict the BestSellersRank for it. For this analysis, we will simply delete any row with a missing value. 
+
+```{r}
+#remove missing values 
+existing <- na.omit(existing)
+# verify removal
+str(existing)
+```
+
+                                                                                               ### Sales Volume
+
+
+This is the sales volume of each product. It is a continous variable inputted as an integer and is also our target variable. 
+
+There should be no missing values or instances of zero sales in this distribution since we removed these values previously.  
+
+  
+```{r}
+unique_volume <- length(unique(existing$Volume)) 
+unique_volume 
+summary(existing$Volume) 
+hist(existing$Volume, main = "Sales Volume Distribution", breaks =  unique_volume )
+```
+It looks like there are some outliers in the 7000 and 12000 range. I am not sure if I should remove them. What if those products are just really good? Removing them from the model would make predictions with similar attributes unreliable. I will look into Cook's Cutoff with my regression line afterwards. 
+
+https://stats.stackexchange.com/questions/87962/cooks-distance-cut-off-value
+https://stats.stackexchange.com/questions/164099/removing-outliers-based-on-cooks-distance-in-r-language
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$Volume,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+ There are two products that are outliers: product 150 and product 198. 
+ 
+ I am not a 100% certain about removing them from the dataset. This outlier could indicate that the attributes of these products are just so good that they can raise sales tremendously. I will train models without these outliers and with the outliers to compare results. 
+ 
+ 
+Instances of Zero Volume:
+
+```{r}
+existing[existing$Volume == 0,]
+```
+These are printer supplies and warranty, which are ancillary products and are not useful for htis analysis. 
+
+```{r}
+#remove
+existing <- existing[!existing$Volume == 0,]
+#verify
+existing[existing$Volume == 0,]
+
+```
+
+
+### ProductNum
+
+ProductNum refers to the unique product number. This is a way to identify a product. It is recorded as a number. 
+Check for duplicates
+```{r}
+str(existing$ProductNum)
+length(unique(existing$ProductNum))
+```
+There are 63 instances and 63 unique values, indicating that there are no duplicates. 
+
+### Price
+
+```{r}
+unique_volume <- length(unique(existing$Price)) 
+unique_volume # 58 unique values
+summary(existing$Price) # integer
+hist(existing$Price, main = "Price Distribution", breaks =  58 )
+table(existing$Price)
+```
+
+There's a very pricy item. I wander if it is related to the outliers found in sales volume. 
+
+```{r}
+existing[existing$Price == 2249.99 | existing$Price ==1276.57 ,]
+```
+
+Nope. The sales volume for these products are not in the outier range. 
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$Price,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### 5 Star Reviews
+```{r}
+unique_volume <- length(unique(existing$x5StarReviews)) 
+unique_volume # 58 unique values
+summary(existing$x5StarReviews) # integer
+hist(existing$x5StarReviews, main = "5-Star Reviews Distribution", breaks =  58 )
+table(existing$x5StarReviews)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$x5StarReviews,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+
+Looking at my_outliers shows that the products with really high 5-star reviews, also had really high sales volume. This makes logical sense. 
+
+<p style = red> We will need to look at the correlation. <p> 
+
+### 4 Star Reviews
+
+```{r}
+unique_volume <- length(unique(existing$x4StarReviews)) 
+unique_volume # 37 unique values
+summary(existing$x4StarReviews) # integer
+hist(existing$x4StarReviews, main = "4-Star Reviews Distribution", breaks =  37 )
+table(existing$x4StarReviews)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$x4StarReviews,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+This outlier list is really long. I will need to remove duplicates and perhaps consider products that are duplicates to really be considered as outliers. 
+
+
+### 3 Star Reviews
+
+```{r}
+unique_volume <- length(unique(existing$x3StarReviews)) 
+unique_volume # 24 unique values
+summary(existing$x3StarReviews) # integer
+hist(existing$x3StarReviews, main = "3-Star Reviews Distribution", breaks =  unique_volume )
+table(existing$x3StarReviews)
+```
+
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$x3StarReviews,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+### 2 Star Reviews
+```{r}
+unique_volume <- length(unique(existing$x2StarReviews)) 
+unique_volume # 24 unique values
+summary(existing$x2StarReviews) # integer
+hist(existing$x2StarReviews, main = "2-Star Reviews Distribution", breaks =  unique_volume )
+table(existing$x2StarReviews)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$x2StarReviews,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### 1 Star Reviews
+
+```{r}
+unique_volume <- length(unique(existing$x1StarReviews)) 
+unique_volume # 24 unique values
+summary(existing$x1StarReviews) # integer
+hist(existing$x1StarReviews, main = "1-Star Reviews Distribution", breaks =  unique_volume )
+table(existing$x1StarReviews)
+```
+
+I suppose it's a good thing that the lower star reviews are less. I'm curious which product has a lot of 1-star reviews. Is it because it's a bad product or is it because that product has in particularly high sales 
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$x1StarReviews,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### Positive Service Reviews
+
+```{r}
+unique_volume <- length(unique(existing$PositiveServiceReview)) 
+unique_volume # 24 unique values
+summary(existing$PositiveServiceReview) # integer
+hist(existing$PositiveServiceReview, main = "PositiveServiceReview Distribution", breaks =  unique_volume )
+table(existing$PositiveServiceReview)
+```
+
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$PositiveServiceReview,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### Negative Service Reviews
+
+```{r}
+unique_volume <- length(unique(existing$NegativeServiceReview)) 
+unique_volume # 24 unique values
+summary(existing$NegativeServiceReview) # integer
+hist(existing$NegativeServiceReview, main = "NegativeServiceReview Distribution", breaks =  unique_volume )
+table(existing$NegativeServiceReview)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$NegativeServiceReview,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+
+### Recommend Product
+```{r}
+unique_volume <- length(unique(existing$Recommendproduct)) 
+unique_volume # 24 unique values
+summary(existing$Recommendproduct) # integer
+hist(existing$Recommendproduct, main = "Recommendproduct Distribution", breaks =  unique_volume )
+table(existing$Recommendproduct)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$Recommendproduct,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+### Best Sellers Rank
+
+```{r}
+unique_volume <- length(unique(existing$BestSellersRank)) 
+unique_volume # 54 unique values
+str(existing$BestSellersRank) # 49
+max(existing$BestSellersRank)
+min(existing$BestSellersRank)
+hist(existing$BestSellersRank, main = "Best Sellers Rank Distribution", breaks =  49 )
+#pull BestSellers
+bestSellersTable <- table(existing$BestSellersRank)   
+cbind(bestSellersTable)
+
+ggplot(existing, aes(BestSellersRank, color = ProductType)) + geom_histogram(binwidth = 30)
+
+sort(existing$BestSellersRank )
+
+```
+
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$BestSellersRank,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### Shipping Weight
+```{r}
+unique_volume <- length(unique(existing$ShippingWeight)) 
+unique_volume # 24 unique values
+summary(existing$ShippingWeight) # integer
+hist(existing$ShippingWeight, main = "ShippingWeight Distribution", breaks =  unique_volume )
+table(existing$ShippingWeight)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$ShippingWeight,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### Product Depth
+```{r}
+unique_volume <- length(unique(existing$ProductWidth)) 
+unique_volume # 24 unique values
+summary(existing$ProductWidth) # integer
+hist(existing$ProductWidth, main = "ProductWidth Distribution", breaks =  unique_volume )
+table(existing$ProductWidth)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$ProductWidth,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### Product Width
+```{r}
+unique_volume <- length(unique(existing$ProductWidth)) 
+unique_volume # 24 unique values
+summary(existing$ProductWidth) # integer
+hist(existing$ProductWidth, main = "ProductWidth Distribution", breaks =  unique_volume )
+table(existing$ProductWidth)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$ProductWidth,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### Product Height
+```{r}
+unique_volume <- length(unique(existing$ProductHeight)) 
+unique_volume # 24 unique values
+summary(existing$ProductHeight) # integer
+hist(existing$ProductHeight, main = "ProductHeight Distribution", breaks =  unique_volume )
+table(existing$ProductHeight)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$ProductHeight,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+### Profit Margin
+```{r}
+unique_volume <- length(unique(existing$ProfitMargin)) 
+unique_volume # 24 unique values
+summary(existing$ProfitMargin) # integer
+hist(existing$ProfitMargin, main = "ProfitMargin Distribution", breaks =  unique_volume )
+table(existing$ProfitMargin)
+```
+
+Outliers
+```{r}
+outlier_test_df <- outlier_test(existing$ProfitMargin,existing)
+outlier_test_df 
+my_outliers
+my_outliers <- append_outliers(my_outliers,outlier_test_df)
+my_outliers
+
+```
+
+### Product Type
+
+Product type is a categorical variable that was inputted as a factor but converted into a dummary variable, with multiple binary columns. The categories are: 
+
+```{r}
+levels(existing$ProductType)
+```
+
+Note that there are not actually any PrinterSupplies (since we removed all instances where sales volume is zero). 
+
+*Drop Levels*
+
+```{r}
+existing <- droplevels(existing)
+#verify
+levels(existing$ProductType)
+```
+
+*Dummify Product*
+
+Now, let's convert product type into dummy variables. 
+
+```{r}
+# ~. stands for transform all characters and factors columns
+dummy <- dummyVars(" ~ .", data = existing)
+ready_data <- data.frame(predict(dummy, newdata = existing))
+summary(ready_data)
+```
+
+## Review of outliers
+
+```{r}
+my_outliers
+
+```
+
+I will remove outliers that have been considered outliers in their respective variable distributions at least 3 times. 
+
+```{r}
+sort(my_outliers)
+table(my_outliers)
+```
+
+Since this is a small dataset, we will only look at products that are considered outliers four or more times. I need to figure out how to do this with code instead of manually, but here it is typed, for now:
+
+```{r}
+my_outiers_refined <- c(102,122,123,148,150,167,198)
+```
+
+We will create two datasets. 
+
+ready_data_outliers_rm is with the outliers removed
+ready_data is as it. 
+
+```{r}
+ready_data_outliers_rm <- ready_data[!ready_data$ProductNum %in% my_outiers_refined,]
+#
+```
+
+## Normalize Data
+
+```{r}
+#ready_data_normalized<- preProcess(ready_data, method='range')
+#str(ready_data_normalized)
+
+```
+
+<p style = "color:red" >I need to normalize my data but I don't have an easy way to do this. It's taking forever to find a way to do this so I'm ust going to move on for now. <p>
+
+## Split Data
+
+We have two datasets right now specifically for resting: ready_data and ready_data_outliers_rm. Let's prepare both with a training, testing split.
+
+### Split Data with Outliers
+```{r}
+# create reproducable results from random sampling
+set.seed(234)
+# create 75% sample of row indices
+in_training <- createDataPartition(ready_data$Volume, p = .75, list = FALSE)
+# create 75% sample of data and save it to train_data
+train_data <- ready_data[in_training, ]
+# create 25% sample of data and save it to test_data
+test_data <- ready_data[-in_training, ]
+# verify split percentages
+nrow(train_data) / nrow(ready_data)
+```
+
+### Split Data without Outliers
+```{r}
+# create reproducable results from random sampling
+set.seed(234)
+# create 75% sample of row indices
+in_training_outliers_rm <- createDataPartition(ready_data_outliers_rm$Volume, p = .75, list = FALSE)
+# create 75% sample of data and save it to train_data
+train_data_outliers_rm <- ready_data_outliers_rm[in_training_outliers_rm, ]
+# create 25% sample of data and save it to test_data
+test_data_outliers_rm <- ready_data_outliers_rm[-in_training_outliers_rm, ]
+# verify split percentages
+nrow(train_data_outliers_rm) / nrow(ready_data_outliers_rm)
+```
+
+# Train Model
+## Linear Model
+
+<p style = "color:red" >What are the assumptions of linear regression?
+
+In order for linear regression to work, our data must meet the following assumptions:
+
+ - Must have some linear relationship
+ - The variabes must have multivariate normality (normally distributed)
+ - No auto-correlation
+ - Homoscedasticity: residuals are equally distributed across regression lines
+<p>
+To predict volume, we will use regression. 
+
+Why regression analysis?
+
+Regression is useful because you can use multiple predictor variables (multiple regression), continous and categorical (factors) varaibles, higher-order terms (what's this), and interaction terms. The best part of regression is that it allows us to look at multiple predictors. In the real world, so many variables are intertwined, and correlated with each other. The following excerpt summarizes this concept well:
+
+"Suppose you’re a researcher and you are studying a question that involves intertwined predictors. For example, you want to determine:
+
+  - whether socio-economic status or race has a larger effect on educational achievement
+  - the importance of education versus IQ on earnings
+  - how exercise habits and diet effect weight
+  - how drinking coffee and smoking cigarettes are related to heart disease
+  - if a specific exercise intervention (separate from overall activity levels) increases bone      density
+These are all research questions where the predictors are likely to be correlated with each other and they could all influence the response variable. How do you untangle this web and separate out the effects? How do you determine which variables are significant and how large of a role does each one play? Regression comes to the rescue!"
+
+In our case, we have many product attributes that are our predictor variables. 
+
+Since we're running  a regression problem, we should normalize our data. This is not necessary for our categorical variables.
+
+The numerical variables that we need to normalize are Price, Reviews, Service Reviews, BestSellersRank,ShippingWeight, ProductDepth,ProductWidth, ProductHeight, ProfitMargin, and Volume. 
+
+<p style = "color:red" > Do we normalize the response/target variable as well?<p>
+
+### Model 1: Training Data, Regular
+Create a linear model that uses volume as its dependent variable. Use summary() function of R to evaluate model, with R^2. 
+
+While we want to keep ProductNum in the dataset because it is useful for reference of specific rows, it has no logical relationship with volume. It is merely an identifier so we will keep special attention to not include it as a predictor variable.
+```{r}
+lm_model_1<-lm(Volume ~ . - ProductNum, train_data)
+summary(lm_model_1)
+```
+Per the results, this model was "essentially [a] perfect fit" and therefore "unreliable". This happens when there is no variance, as shown by R-Squared equal to 1. 
+
+Why is our model unreliable? 
+
+R-Squared is calculated as 1-(Explained Varation/ TotalVariation). Total Varation is the sum of all instances of y from the mean of y, squared. This will always be a positive number. Explained variation is the sum of the difference of all instances of y and the predicted value for that instance of y, squared. We get 1 for R-Squared when the difference between all the instances of y and the predicted values of y are the same. There's no difference, which means that there is no variance. 
+
+To find out why, we will look at the correlation matrix. There must be variable that has perfect correlation.
+
+### Model 1: Training Data, Regular: Correlation
+
+
+While correlation doesn't always imply causation,we want to see the correlation between the relevant independent variables and the dependent variable. We will use the cor() function to calculate the correlation and the corpolot() function to visuallly ascertain the correlation between all of the features.
+
+Correlation values fall within -1 and 1 with variables have string positive relationships having correlation values closer to 1 and strong negative relationships with values closer to -1.
+
+For feature selection, we want to remove features that are highly correlated with each other. These are linearly dependent and hence have almost the same effect on the dependent variable. Therefore, we can remove one of the features in our model. More features than necessary can result in overfitting for our unique case of attributes and can slow down the model. 
+
+```{r}
+corrData <- cor(train_data)
+corrplot(corrData)
+any_over_90 <- function(corrMatrix) any(corrMatrix > .9 , na.rm = TRUE)
+any_under_90 <- function(corrMatrix) any(corrMatrix < -.9, na.rm = TRUE)
+corrData %>% 
+  focus_if(any_over_90, mirror = TRUE) 
+#corrData %>% 
+  #focus_if(any_under_90, mirror = TRUE) Results in false
+
+```
+No variables have strong negative correlations. 
+
+Volume and x5StarReviews have perfect correlation, which must be the reason why R-Squared is 1, and why our regression line has a perfect fit. We will drop this 5-Star reviews. 
+
+Furthermore, there is multicollinearity with 1-2 star reviews, and 3-4 star reviews, which both have correlations above .9.\
+
+We can drop the variables that are multocollinear. We can combine them and bin them. Since we already have a large number of predictors, we will use the simple method and drop 2star and 4 star reviews, since they're both highly correlated with 1 and 3star reviews, respectively.
+
+In the future, we could look at the VIF score for multocollinearity. We could also look at distributions a bit more to see which particular reviews to drop. I simply picked 2 and 4.
+
+Let's look at the variance inflation factor
+ VIF = 1/ (1- R-Sqauared for a certain predictor)
+ 
+ 1= not correlated
+ Between 1 and 5 = moderalty correlated
+ Greater than 5 > highly correlated
+ 
+```{r}
+#vif(lm_model_1)
+
+# Error in vif.default(lm_model_1) : there are aliased coefficients in the model
+
+```
+  
+Let's try this again after removing the variable with perfect correlation.
+ 
+
+```{r}
+# remove 5-star reviews, 2-star reviews, and 4-star reviews. 
+train_data_after_perfect_correlation <- select(train_data, -c(x5StarReviews ) )
+#verify
+str(train_data_after_perfect_correlation)
+```
+
+```{r}
+
+lm_model_perfect_correlation<-lm(Volume ~ . - ProductNum, train_data_after_perfect_correlation)
+
+#vif(lm_model_perfect_correlation)# the aliased coefficient error is still occuring
+
+# let's try a different method 
+alias( lm( Volume ~ . - ProductNum, train_data_after_perfect_correlation ) )
+
+
+
+```
+In this context, ''alias'' refers to the variables that are linearly dependent on others (i.e. cause perfect multicollinearity).
+
+https://stats.stackexchange.com/questions/112442/what-are-aliased-coefficients
+
+https://stats.stackexchange.com/questions/31270/what-is-the-difference-between-linearly-dependent-and-linearly-correlated/76618#76618
+
+We can see that Tablets are linearly dependent with a lot of other product types. I will remove that. 
+
+```{r}
+# remove 5-star reviews, ProductTYpe
+train_data_after_perfect_correlation_alias <- select(train_data_after_perfect_correlation, -c(ProductType.Tablet) )
+#verify
+
+
+lm_model_after_perfect_correlation_alias<-lm(Volume ~ . - ProductNum, train_data_after_perfect_correlation_alias)
+
+summary(lm_model_after_perfect_correlation_alias)
+#vif(lm_model_perfect_correlation)# the aliased coefficient error is still occuring
+
+```
+
+
+Now, let's check for Variable Importance factors
+```{r}
+#verify
+vif(lm_model_after_perfect_correlation_alias)
+```
+
+ A rule of thumb commonly used in practice is if a VIF is > 10, you have high multicollinearity. 
+ 
+ https://blog.minitab.com/blog/starting-out-with-statistical-software/what-in-the-world-is-a-vif
+ 
+ Which variables have VIF greater than 10?
+ 
+ x4StarReviews
+ x3StarReviews
+ x2StarReviews
+ x1StarReviews
+ ShippingWeight
+ ProductType.ExtendedWarranty
+ ProfitMargin
+ 
+ We were already going to remove 2 and 4 star reviews because of their scores in the correlation matrix. Let's remove them and then rerun theVIF.
+
+```{r}
+# remove 5-star reviews, 2-star reviews, and 4-star reviews. 
+train_data_after_perfect_correlation_alias_VIF1 <- select(train_data_after_perfect_correlation_alias, -c(x2StarReviews,x4StarReviews) )
+
+lm_model_after_perfect_correlation_alias_VIF1<-lm(Volume ~ . - ProductNum, train_data_after_perfect_correlation_alias_VIF1)
+vif(lm_model_after_perfect_correlation_alias_VIF1)
+
+#verify
+```
+
+The VIF scores have decreased a bit, but some are still pretty high. Let's just remove all of the ones with high VIFs.
+
+
+```{r}
+# remove 5-star reviews, 2-star reviews, and 4-star reviews. 
+train_data_after_perfect_correlation_alias_VIF2 <- select(train_data_after_perfect_correlation_alias_VIF1, -c(x1StarReviews,ProfitMargin,ProductType.ExtendedWarranty,x3StarReviews,ShippingWeight) )
+
+lm_model_after_perfect_correlation_alias_VIF2<-lm(Volume ~ . - ProductNum, train_data_after_perfect_correlation_alias_VIF2)
+vif(lm_model_after_perfect_correlation_alias_VIF2)
+summary(lm_model_after_perfect_correlation_alias_VIF2)
+#verify
+```
+Now that the VIF scores are decent, let's run the model now to see what R-Squared is after accounting for multicollinearity and perfect corerlation.
+
+```{r}
+summary(lm_model_after_perfect_correlation_alias_VIF2)
+
+```
+
+Multiple R-squared:  0.6665,	Adjusted R-squared:  0.4775 
+
+It decreased significantly. This model keeps getting worse. 
+
+### Residuals
+Let's look at the plot between our fitted values and residuals. 
+```{r}
+plot(lm_model_after_perfect_correlation_alias_VIF2, main = "Linear Model - Correlation Accounted For")
+```
+This is just bad. This model is not appropriate for this dataset. 
+
+It appears that there our two outliers around 7000 and 14000. 
+
+This doesn't look very random. We have quite a bit of datapoints that are so close to the line. 
+
+#### Linear Model: Remove Outliers
+
+```{r}
+# find outliers
+train_data_after_correlation[train_data_after_correlation$Volume > 6000,]
+```
+
+We've seen issues with these two products before. Let's remove it from out dataset as they are outliers. 
+
+```{r}
+train_data_after_correlation_rm_outliers <- train_data_after_correlation[!train_data_after_correlation$Volume > 6000,]
+```
+
+Let's rerun the model without the outliers. 
+
+```{r}
+lm_model_correlation_outliers <- lm(Volume ~ . - ProductNum, train_data_after_correlation_rm_outliers)
+summary(lm_model_correlation_outliers)
+plot(lm_model_correlation_outliers, main = "Model with Correlation and Outliers Accounted For")
+
+```
+
+The Fitted vs Residual plot is still not as random as I'd like it to be. It is a bit better though after were removed. 
+
+#### Normalizing
+
+```{r}
+#normalize values
+normalized_parameters <-  preProcess(train_data_after_correlation_rm_outliers, method="range")
+normalized_data <- predict(normalized_parameters, train_data_after_correlation_rm_outliers)
+normalized_model <-lm(Volume ~ . - ProductNum, normalized_data)
+summary(normalized_model)
+
+```
+
+Before normalizing:
+Multiple R-squared:  0.8851,	Adjusted R-squared:  0.7751 
+Residual standard error: 291.4 on 23 degrees of freedom
+
+
+After normalizing:
+Multiple R-squared:  0.8851,	Adjusted R-squared:  0.7751 
+Residual standard error: 0.1364 on 23 degrees of freedom
+
+Interesting. There's not much change in R-Squared. There is in the residual standard error and slight changes in P-Values. 
+#### P- Values
+
+Now, let's look at p-values.  If the p-value is low (usually < 0.05), the predictor is significant.
+
+
+
+The following variables have  p-values around .05 and lower (I didn't find a quick way in R to extract them just yet, so this was manual):
+
+Accessories, GameConsole, PC, 3Stars, Negative Service Reviews, RecommendedProduct, 5Star Reviews
+
+Looking at the p-values before normalizing and after, there has not been a change between what is  significant and what is not. 
+```{r}
+summary(normalized_model)
+```
+Run model again, but with only significant p-values
+
+```{r}
+
+lm_model_correlation_outliers <- lm(Volume ~ 
+                                      ProductType.GameConsole +
+                                      ProductType.PC +
+                                      x3StarReviews + 
+                                      NegativeServiceReview + 
+                                      Recommendproduct +
+                                      BestSellersRank +
+                                      ProductDepth +
+                                      ProductHeight, normalized_data)
+summary(lm_model_correlation_outliers)
+plot(lm_model_correlation_outliers, main = "Model with Correlation, Outliers, Normalization, and P-Values, Accounted For")
+
+```
+
+This is even worse. 
+
+R-squared went down by about .25 points, and the plot of fitted values vs residuals are even worse. 
+
+Why is this happening?
+
+What are the assumptions of multiple regression?
+
+- There must be a linear relationship between the outcome variable and the independent variables.  Scatterplots can show whether there is a linear or curvilinear relationship.
+- Multivariate Normality–Multiple regression assumes that the residuals are normally distributed.
+-- We have already seen that our residuals have not really been normally distributed. They're not random and they fallon the fitted line a lot.
+- No Multicollinearity—Multiple regression assumes that the independent variables are not highly correlated with each other.  This assumption is tested using Variance Inflation Factor (VIF) values.
+
+
+-- We already have this issue. So many variables have high correlations with each other.
+- Homoscedasticity–This assumption states that the variance of error terms are similar across the values of the independent variables.  A plot of standardized residuals versus predicted values can show whether points are equally distributed across all values of the independent variables.
+
+#### Multivariate Normality
+ THis is 
+
+## Support Vector Machine (SVM)
+
+## Random Forest
+## Gradient Boosting
+## Compare Models
+## Select Model
+# Fine Tune Model
+## Feature Selection
+### Variable Importance
+# Make Predictions
+## Prepare Data
+## Apply Model
+# Present Results
+## Conclusions
+## Business Value
+## Recommendation to Sales Department
+# Lessons Learned
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
