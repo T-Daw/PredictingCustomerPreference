@@ -1,0 +1,178 @@
+---
+title: "Association Between Products"
+output: html_notebook
+---
+
+THe purpose of this analysis to identify purchasing patterns for Blackwell Electronics, a fictitious company that is considering purchasing another fictitious company, Electronidex's clientele. Our data is a CSV file that contains online transactions for one month of Electronixes sales, and a file containing all the electronics that the company sells. Due to their lack of funding, Electronidex is only able to pull data on the items that customers purchased per their transactions.
+
+We will use R to conduct a market basket analysis to discover interesting relationships (or associations) between customer’s transactions and the item(s) they’ve purchased. These associations can then be used to drive sales-oriented initiatives such as recommender systems like the ones used by Amazon and other eCommerce sites. 
+
+Questions: 
+Are there any interesting patterns or item relationships within Electronidex's transactions?
+Would Blackwell benefit from selling any of Electronidex's items?
+In your opinion, should Blackwell acquire Electronidex?
+If Blackwell does acquire Electronidex, do you have any recommendations for Blackwell? (Ex: cross-selling items, sale promotions, should they remove items, etc.)
+
+
+Once we've completed your market basket analysis, please put together a formal business report in Word. 
+
+
+
+
+# Install and Load Libraries
+
+```{r}
+install.packages("arules")
+library(arules)
+
+install.packages("arulesViz")
+library(arulesViz)
+```
+
+# Import Data
+```{r}
+transactions <- read.transactions("ElectronidexTransactions2017.csv", format = "basket", rm.duplicates=TRUE, sep=",")
+#productList <- read.transactions("ProductList.csv")
+
+```
+
+```{r}
+str(transactions)
+```
+
+# Get to know your transactional data. 
+
+## View first 10 transactions
+```{r}
+inspect(head(transactions,10))
+
+```
+
+##  Number of transactions
+```{r}
+length(transactions)
+```
+
+## Items per transactions
+```{r}
+sort(size(transactions),decreasing=TRUE)
+```
+
+## Lists the transactions by conversion 
+
+LIST() creates a list representation from objects based on itemMatrix (e.g., transactions, tidLists, or itemsets). These methods can be used for the coercion to a list.
+```{r}
+as_list_transactions <- LIST(transactions)
+```
+
+# Item Labels
+```{r}
+itemLabels(transactions)
+```
+
+https://cran.r-project.org/web/packages/arules/arules.pdf :
+
+- itemLabels signature(object = "itemMatrix"); 
+-- returns the item labels used for encoding as a character vector.
+-- returns the item labels used to encode the rules
+-- returns the item labels as a character vector. The index for each label is the column index of the item in the binary matrix.
+
+
+# What are the most frequent items? 
+```{r}
+itemFrequencyPlot(transactions,topN=20,type="absolute")
+```
+
+# Least Frequent Selling Items
+```{r}
+sort(itemFrequency(transactions))
+```
+
+
+# How many items do customers purchase the most? Least? 
+```{r}
+summary(transactions)
+```
+Customers purchase most often purchase 1 item at a time. The least often purchase 25 to 30 items at a time.
+
+It's interesting that there are 2 transactions that have 0 items. Those shouldn't be in the dataset at all.
+
+It looks like computers are the main categories of items purchased followed by keyboards.
+
+# Visualize all transactions within dataset
+```{r}
+image(sample(transactions, 100))
+```
+
+This looks pretty random If anything, the first 40 items are purchased more.
+
+# apriori algorithm
+
+Support gives an idea of how frequent an itemset is in all the transactions. Value of support helps us identify the rules worth considering for further analysis. If an itemset happens to have a very low support, we do not have enough information on the relationship between its items and hence no conclusions can be drawn from such a rule.
+
+minlen is the minimum number of items required in the rule. A minlen of 3 returns rules with at least 2 items in the itemset. After tuning the minimum support and confidence values, it already seems like there are not a lot of items that have strong associations. 
+
+```{r}
+rulesTransactions<- apriori (transactions, parameter = list(supp = 0.01, conf = 0.5, minlen=2))
+inspect(rulesTransactions)
+```
+
+# Evalaute model
+```{r}
+summary(rulesTransactions)
+```
+
+Lift measures the importance of a rule. In cases where {X} actually leads to {Y} on the cart, value of lift will be greater than 1. A value of lift less than 1 shows that having the second item on the cart does not increase the chances of occurrence of the first item in spite of the rule showing a high confidence value.
+
+https://towardsdatascience.com/association-rules-2-aa9a77241654
+
+In our case, the lift is higher than 1 for all of our rules. 
+
+# Sort rules by their measurements
+```{r}
+inspect(sort( rulesTransactions, by = "lift"))
+```
+
+I chose to sort by lift, because really, support and confidence are already low. 
+
+Let's look at rules with a lift higher than 2.5, or the first 3 rules.
+
+```{r}
+inspect(head(sort( rulesTransactions, by = "lift"),3))
+
+```
+
+# View rules for "View Sonic Monitor"
+
+```{r}
+ViewSonicMonitorRules <- subset(rulesTransactions, items %in% "ViewSonic Monitor")
+inspect(ViewSonicMonitorRules)
+```
+
+# Remove redundant rules
+
+```{r}
+is.redundant(rulesTransactions)
+```
+
+None of are rules are redundant.
+
+# Visualize Rules
+
+```{r}
+plot(rulesTransactions, measure="lift",shading="support")
+```
+
+```{r}
+html_plot <- plot(rulesTransactions, method="graph",engine="htmlwidget")
+html_plot
+```
+
+```{r}
+plot(rulesTransactions, method="paracoord")
+```
+
+```{r}
+plot(rulesTransactions, method="grouped")
+```
+
