@@ -30,9 +30,9 @@ I had initially started this project using R but finished it in Python. This fol
 
 ### 2.4 python_CompleteAnalysis
 Full analysis and model building in Python. 
-### 2.4.1 ExploratoryDataAnalysis.ipynb
+#### 2.4.1 ExploratoryDataAnalysis.ipynb
 Preprocess and visualize data.
-### 2.4.2 ModelBuilding.ipynb
+#### 2.4.2 ModelBuilding.ipynb
 Build and run model to predict brand preference. 
 
 ### 2.5 Customer Brand Preferences Report.pdf
@@ -42,7 +42,11 @@ Prediction results from model for customers in the incomplete survey. This file 
 
 
 ## 3. SalesVolumePredictions
-Folder containing R code of analysis. 
+Folder containing all files for predicting sales volume. 
+
+### 3.1 PreviousProgressInR            `                        ````````````````````````````````````````````````````````````````````
+I had initially started this project using R but finished it in Python. This folder contains the R code (in .rmd) using R's  CARET package.
+
 
 ## 4. DiscoverAssicationsBetweenProducts	
 Folder containing R code of analysis in PDF format for better rendering.
