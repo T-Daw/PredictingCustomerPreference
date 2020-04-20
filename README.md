@@ -21,14 +21,47 @@ I had initially started this project using R but finished it in Python. This fol
 
 ### 2.4 python_CompleteAnalysis
 Full analysis and model building in Python. 
+
 #### 2.4.1 ExploratoryDataAnalysis.ipynb
 Preprocess and visualize data.
+
 #### 2.4.2 ModelBuilding.ipynb
 Build and run model to predict brand preference. 
 
 ### 2.5 Customer Brand Preferences Report.pdf
 Summarize relationship between variables, provide results and model performance metrics.
+
 ### 2.6 predictionResults.csv
 Prediction results from model for customers in the incomplete survey. This file is sent to marketing department.
 
+## 3. Sales Volume Predictions
+Folder containing all files for predicting product sales.
+
+### 3.1 Data
+Contains data on existing products and their attributes, new products and their attributes, and preprocessed new products data used on model. 
+
+### 3.2 analysis_in_R_incomplete
+I had worked on this project using RapidMinor Studio, R, and eventually Python. This folder contains code from my analysis in R (.rmd) and notes on model performance results from RapidMiner in pdf. 
+
+### 3.3 CompleteAnalysis.ipynb
+Contains exploratory data analysis and model building in Python. 
+
+### 3.4 Results
+groundTruth.csv shows actual sales volume (grouthTruth) from the existing attributes data and the predicted sales volume from my model. newProductPredictions.csv shows the predicted sales volume from applying the model on the new attributes data set. 
+
+## 4 DiscoverAssicationsBetweenProducts
+Folder containing all files for market basket analysis.
+
+### 4.1 ProjectBackground.md
+Blackwell is considering acquiring a startup and needs to better understand the startup's clientele.
+
+### 4.2 Data
+ElectronidexTransactions2017.csv contains Electronidex's transactions in 'basket' or 'transactional' data format.
+ProductList.csv lists the names of the products that Electronidex sells. 
+
+### 4.3 R Code
+Analysis_Notebook.Rmd contains analysis in R. Association Between Products.pdf contains the same analysis but in PDF for easier rendering. 
+
+### 4.4 Report for Market Basket Analysis.pdf
+Presents top and least selling items, interesting relationship between items, and business recommendations. 
 
